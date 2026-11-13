@@ -51,13 +51,17 @@ struct ContentView: View {
     }
     private var chosen: [PhotoAsset] { library.galleryAssets.filter { selected.contains($0.id) } }
     private var verifiedSelection: [PhotoAsset] {
-        chosen.filter { library.backupStates[$0.id] == .verified }
+        let ids = DeviceLibrary.verifiedGalleryIDs(selected, assets: library.assets, galleryAssets: library.galleryAssets,
+                                                    states: library.backupStates)
+        return chosen.filter { ids.contains($0.id) }
     }
     private var verifiedSelectionCount: Int { verifiedSelection.count }
     private var deleteGuidance: String {
         var requirements: [String] = []
         if rootURL == nil {
             requirements.append("To delete from the iPhone, choose a backup folder and export or check the selected items first.")
+        } else if library.busy {
+            requirements.append("Checking backup files; this count updates as checks finish.")
         } else if verifiedSelectionCount < selected.count {
             requirements.append("Back up the remaining \(selected.count - verifiedSelectionCount) items or check an existing Backitup backup.")
         }
@@ -130,7 +134,7 @@ struct ContentView: View {
                 Image(systemName: "trash").foregroundStyle(.red)
                 Text("Delete from iPhone?").font(.system(size: 20, weight: .semibold))
             }
-            Text("\(verifiedSelectionCount) of \(selected.count) selected items have verified local backups.")
+            Text("\(verifiedSelectionCount) of \(selected.count) selected photos have verified backups, including related originals.")
                 .font(.system(size: 13, weight: .medium))
             Text(deleteGuidance)
                 .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -419,6 +423,7 @@ struct ContentView: View {
                     selectAsset(asset)
                 }
                 .onAppear { library.requestThumbnail(for: asset.id) }
+                .onDisappear { library.releaseThumbnail(for: asset.id) }
             }
         }
     }
@@ -597,7 +602,7 @@ struct ContentView: View {
     }
 
     private func libraryStatusForNewFolder() {
-        for asset in library.assets { library.setBackupState(.unknown, for: asset.id) }
+        library.setBackupStates(Dictionary(uniqueKeysWithValues: library.assets.map { ($0.id, .unknown) }))
     }
 
     private func beginExport() {
@@ -609,7 +614,8 @@ struct ContentView: View {
     private func backupRemainingForDeletion() {
         if rootURL == nil { chooseFolder() }
         guard rootURL != nil else { return }
-        let remaining = chosen
+        let verifiedIDs = Set(verifiedSelection.map(\.id))
+        let remaining = chosen.filter { !verifiedIDs.contains($0.id) }
         guard !remaining.isEmpty else { return }
         var options = exportOptions
         options.kinds = Set(MediaKind.allCases)
@@ -630,6 +636,7 @@ struct ContentView: View {
         }
         if rootURL == nil { chooseFolder() }
         guard let rootURL else { return }
+        let selectionAtStart = selected
         backupError = nil
         library.startProgress(total: assets.count, message: "Preparing backup…")
         Task {
@@ -647,7 +654,8 @@ struct ContentView: View {
                         + (remaining > 0 ? "\n…and \(remaining) more failed items." : "")
                     if !returnToDelete { errorMessage = backupError }
                 }
-                checkBackups(returnToDelete: returnToDelete)
+                library.setBackupStates(result.states)
+                if returnToDelete && selectionAtStart == selected { showDelete = true }
             } catch {
                 library.stopProgress("Backup stopped")
                 if returnToDelete {
@@ -666,20 +674,28 @@ struct ContentView: View {
         let selectedIDs = Set(chosen.map(\.id))
         let targetIDs = DeviceLibrary.deletionTargetIDs(for: selectedIDs, assets: library.assets, galleryAssets: library.galleryAssets)
         let assets = library.assets.filter { targetIDs.contains($0.id) }
-        assets.forEach { library.setBackupState(.checking, for: $0.id) }
+        library.setBackupStates(Dictionary(uniqueKeysWithValues: assets.map { ($0.id, .checking) }))
         library.startProgress(total: assets.count, message: "Checking local backup files…")
         Task.detached {
             let service = BackupService()
             let manifest = service.loadManifest(at: rootURL)
+            var pending: [String: BackupState] = [:]
+            var lastUpdate = Date()
             for (index, asset) in assets.enumerated() {
-                let state = service.verify(asset, at: rootURL, manifest: manifest)
-                await MainActor.run {
-                    library.setBackupState(state, for: asset.id)
-                    library.advanceProgress("Checked \(index + 1) of \(assets.count) items")
+                pending[asset.id] = service.verify(asset, at: rootURL, manifest: manifest)
+                if pending.count >= 20 || Date().timeIntervalSince(lastUpdate) >= 0.25 || index == assets.count - 1 {
+                    let batch = pending
+                    pending.removeAll(keepingCapacity: true)
+                    lastUpdate = Date()
+                    await MainActor.run {
+                        library.setBackupStates(batch)
+                        library.updateProgress(index + 1, total: assets.count,
+                                               message: "Checked \(index + 1) of \(assets.count) source files")
+                    }
                 }
             }
             await MainActor.run {
-                library.stopProgress("Backup check complete: \(assets.filter { library.backupStates[$0.id] == .verified }.count) of \(assets.count) verified.")
+                library.stopProgress("Backup check complete: \(assets.filter { library.backupStates[$0.id] == .verified }.count) of \(assets.count) source files verified.")
                 if returnToDelete && selectedIDs == selected {
                     showDelete = true
                 }
@@ -700,17 +716,22 @@ struct ContentView: View {
             for asset in targets { states.append((asset.id, service.verify(asset, at: rootURL, manifest: manifest))) }
             let checkedStates = states
             await MainActor.run {
-                checkedStates.forEach { library.setBackupState($0.1, for: $0.0) }
+                library.setBackupStates(Dictionary(uniqueKeysWithValues: checkedStates))
                 library.stopProgress("Pre-delete backup check complete")
-                guard checkedStates.allSatisfy({ $0.1 == .verified }) else {
-                    errorMessage = "One or more backup files are missing or changed. Export and verify again before deleting."
+                let safeIDs = DeviceLibrary.verifiedGalleryIDs(Set(assets.map(\.id)), assets: library.assets,
+                                                               galleryAssets: library.galleryAssets, states: library.backupStates)
+                guard !safeIDs.isEmpty else {
+                    errorMessage = "The selected backups are missing or changed. No items were deleted."
                     return
                 }
-                library.deleteVerified(Set(assets.map(\.id))) { result in
+                library.deleteVerified(safeIDs) { result in
                     switch result {
                     case .success:
-                        selected.subtract(assets.map(\.id))
+                        selected.subtract(safeIDs)
                         selectionAnchorID = nil
+                        if safeIDs.count < assets.count {
+                            errorMessage = "Some backup files changed during the check. Those items remain on the iPhone."
+                        }
                     case .failure(let error): errorMessage = error.localizedDescription
                     }
                 }

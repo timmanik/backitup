@@ -4,6 +4,13 @@ import XCTest
 @testable import Backitup
 
 final class BackupSafetyTests: XCTestCase {
+    func testRelatedDownloadSizeValidation() {
+        XCTAssertTrue(BackupService.relatedSizeIsComplete(expected: 100, actual: 100))
+        XCTAssertFalse(BackupService.relatedSizeIsComplete(expected: 100, actual: 99))
+        XCTAssertFalse(BackupService.relatedSizeIsComplete(expected: 100, actual: nil))
+        XCTAssertTrue(BackupService.relatedSizeIsComplete(expected: 0, actual: 100))
+        XCTAssertFalse(BackupService.relatedSizeIsComplete(expected: 0, actual: 0))
+    }
     private func asset() -> PhotoAsset {
         PhotoAsset(id: "42-IMG_0001.HEIC", deviceID: "iphone-a", name: "IMG_0001.HEIC",
                    date: Date(timeIntervalSince1970: 1_700_000_000), bytes: 5,

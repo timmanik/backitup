@@ -167,11 +167,16 @@ final class DeviceLibrary: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.requestedThumbnails.remove(id)
-                guard let data, let image = NSImage(data: data) else { return }
-                self.thumbnails[id] = image
+                guard let data else { return }
+                if self.visibleThumbnailIDs.contains(id), let image = NSImage(data: data) { self.thumbnails[id] = image }
                 try? self.cache.saveThumbnail(data, for: asset)
             }
         }
+    }
+
+    func releaseThumbnail(for id: String) {
+        visibleThumbnailIDs.remove(id)
+        thumbnails.removeValue(forKey: id)
     }
 
     func canDelete(_ ids: Set<String>) -> Bool {
@@ -184,6 +189,24 @@ final class DeviceLibrary: NSObject, ObservableObject {
 
     static func allTargetsVerified(_ ids: Set<String>, states: [String: BackupState]) -> Bool {
         !ids.isEmpty && ids.allSatisfy { states[$0] == .verified }
+    }
+
+    static func verifiedGalleryIDs(_ ids: Set<String>, assets: [PhotoAsset], galleryAssets: [PhotoAsset],
+                                   states: [String: BackupState]) -> Set<String> {
+        let displayed = Set(galleryAssets.map(\.id))
+        var selectedGroups: [String: String] = [:]
+        var hiddenByGroup: [String: [String]] = [:]
+        for asset in assets {
+            guard let group = asset.groupID else { continue }
+            if ids.contains(asset.id) { selectedGroups[asset.id] = group }
+            if !displayed.contains(asset.id) { hiddenByGroup[group, default: []].append(asset.id) }
+        }
+        let existingIDs = Set(assets.map(\.id))
+        return Set(ids.filter { id in
+            guard existingIDs.contains(id), states[id] == .verified else { return false }
+            guard let group = selectedGroups[id] else { return true }
+            return (hiddenByGroup[group] ?? []).allSatisfy { states[$0] == .verified }
+        })
     }
 
     func deleteVerified(_ ids: Set<String>, completion: @escaping (Result<Int, Error>) -> Void) {
@@ -241,6 +264,11 @@ final class DeviceLibrary: NSObject, ObservableObject {
     }
 
     func setBackupState(_ state: BackupState, for id: String) { backupStates[id] = state }
+    func setBackupStates(_ states: [String: BackupState]) {
+        var updated = backupStates
+        updated.merge(states) { _, new in new }
+        backupStates = updated
+    }
     func startProgress(total: Int, message: String) {
         busy = true
         self.total = total
@@ -291,7 +319,6 @@ final class DeviceLibrary: NSObject, ObservableObject {
         guard !additions.isEmpty else { return }
         lastCatalogActivity = Date()
         assets.append(contentsOf: additions)
-        assets.sort { $0.date > $1.date }
         if deviceReportedReady {
             catalogReady = false
             isLoading = true
@@ -369,6 +396,7 @@ final class DeviceLibrary: NSObject, ObservableObject {
         // A ready callback can arrive before queued didAdd callbacks. Keep the saved
         // gallery until at least one live item has arrived.
         guard !assets.isEmpty || galleryAssets.isEmpty else { return }
+        assets.sort { $0.date > $1.date }
         classifyLivePhotos()
         galleryAssets = Self.groupedGallery(assets)
         catalogReady = camera.hasOpenSession && !camera.isAccessRestrictedAppleDevice

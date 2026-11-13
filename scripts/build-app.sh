@@ -12,7 +12,7 @@ export SWIFTPM_MODULECACHE_OVERRIDE="$repo_dir/.build/swift-cache"
 
 xcrun swift build --disable-sandbox -c release
 
-app_dir="$repo_dir/dist/Backitup.app"
+app_dir="${BACKITUP_APP_DIR:-$repo_dir/dist/Backitup.app}"
 mkdir -p "$app_dir/Contents/MacOS"
 cp "$repo_dir/.build/release/Backitup" "$app_dir/Contents/MacOS/Backitup"
 cp "$repo_dir/Resources/Info.plist" "$app_dir/Contents/Info.plist"

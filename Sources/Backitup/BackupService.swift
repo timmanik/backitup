@@ -12,6 +12,7 @@ final class BackupService {
         let exported: Int
         let skipped: Int
         let failures: [String]
+        let states: [String: BackupState]
     }
 
     func loadManifest(at root: URL) -> BackupManifest {
@@ -53,6 +54,7 @@ final class BackupService {
         var exported = 0
         var skipped = 0
         var failures: [String] = []
+        var states: [String: BackupState] = [:]
         let selected = assets.filter { options.kinds.contains($0.kind) }
         let targetIDs = options.includeEditedOriginals
             ? DeviceLibrary.deletionTargetIDs(for: Set(selected.map(\.id)), assets: library.assets, galleryAssets: library.galleryAssets)
@@ -63,24 +65,30 @@ final class BackupService {
             progress(index, included.count, "Backing up \(asset.name)…")
             guard let file = library.file(for: asset.id) else {
                 failures.append("\(asset.name): no longer available from iPhone")
+                states[asset.id] = verify(asset, at: root, manifest: manifest)
                 continue
             }
             if verify(asset, at: root, manifest: manifest) == .verified {
                 skipped += 1
+                states[asset.id] = .verified
                 continue
             }
+            let priorRecord = manifest.records[asset.sourceKey]
             do {
                 let record = try await exportOne(asset: asset, file: file, library: library, root: root, options: options)
                 manifest.records[asset.sourceKey] = record
                 try save(manifest, at: root)
                 exported += 1
+                states[asset.id] = verify(asset, at: root, manifest: manifest)
             } catch {
                 failures.append("\(asset.name): \(error.localizedDescription)")
+                manifest.records[asset.sourceKey] = priorRecord
+                states[asset.id] = verify(asset, at: root, manifest: manifest)
             }
         }
         progress(included.count, included.count,
                  "Backup finished: \(exported) new, \(skipped) already verified, \(failures.count) failed.")
-        return ExportResult(exported: exported, skipped: skipped, failures: failures)
+        return ExportResult(exported: exported, skipped: skipped, failures: failures, states: states)
     }
 
     private func exportOne(asset: PhotoAsset, file: ICCameraFile, library: DeviceLibrary,
@@ -106,17 +114,25 @@ final class BackupService {
             if seenFiles.insert(ObjectIdentifier(relatedFile)).inserted { relatedFiles.append(relatedFile) }
         }
         if wantsSidecars {
+            var relatedNames = Set<String>()
             for relatedFile in relatedFiles {
                 let relatedName = sanitized(relatedFile.originalFilename ?? relatedFile.name ?? "Related original")
+                guard relatedNames.insert(relatedName.lowercased()).inserted else {
+                    throw AppError.message("More than one related file is named \(relatedName).")
+                }
                 let relatedURL = staging.appendingPathComponent(relatedName)
-                if !FileManager.default.fileExists(atPath: relatedURL.path) {
-                    _ = try await download(relatedFile, to: staging, name: relatedName, sidecars: false)
+                guard relatedURL != source else { throw AppError.message("Related file has the same name as the primary file: \(relatedName).") }
+                // Download separately: Image Capture can return before automatically requested sidecars are complete.
+                let separate = staging.appendingPathComponent(UUID().uuidString, isDirectory: true)
+                try FileManager.default.createDirectory(at: separate, withIntermediateDirectories: true)
+                let actualName = try await download(relatedFile, to: separate, name: relatedName, sidecars: false)
+                let actualURL = separate.appendingPathComponent(actualName)
+                let actualSize = try actualURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
+                guard Self.relatedSizeIsComplete(expected: Int64(relatedFile.fileSize), actual: actualSize.map(Int64.init)) else {
+                    throw AppError.message("Could not confirm \(relatedName): iPhone reported \(relatedFile.fileSize) bytes; downloaded \(actualSize.map(String.init) ?? "no file") bytes.")
                 }
-                guard relatedURL != source,
-                      let size = try? relatedURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-                      Int64(size) == Int64(relatedFile.fileSize) else {
-                    throw AppError.message("Could not confirm related original \(relatedName).")
-                }
+                if FileManager.default.fileExists(atPath: relatedURL.path) { try FileManager.default.removeItem(at: relatedURL) }
+                try FileManager.default.moveItem(at: actualURL, to: relatedURL)
             }
         }
         let finalName = options.originalFilenames ? safeName : generatedName(for: asset)
@@ -148,6 +164,11 @@ final class BackupService {
         return BackupRecord(sourceKey: asset.sourceKey, relativePath: primary.relativePath,
                             sha256: primary.sha256, bytes: primary.bytes, backedUpAt: Date(),
                             relatedFiles: related, deletionSafe: !converted && related.count >= expectedSidecars)
+    }
+
+    static func relatedSizeIsComplete(expected: Int64, actual: Int64?) -> Bool {
+        guard let actual, actual > 0 else { return false }
+        return expected == 0 || expected == actual
     }
 
     private func save(_ manifest: BackupManifest, at root: URL) throws {

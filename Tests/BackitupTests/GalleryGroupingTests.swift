@@ -3,6 +3,22 @@ import XCTest
 @testable import Backitup
 
 final class GalleryGroupingTests: XCTestCase {
+    func testVerifiedSelectionMatchesEachExpandedDeletionGroup() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let assets = (0..<120).map { i in
+            PhotoAsset(id: "\(i)", deviceID: "phone", name: i.isMultiple(of: 2) ? "FullSizeRender.jpg" : "IMG_\(i).JPG",
+                       date: date, bytes: 1, kind: .photo, groupID: "group-\(i / 2)", width: 1, height: 1)
+        }
+        let gallery = DeviceLibrary.groupedGallery(assets)
+        let selected = Set(gallery.map(\.id))
+        let states = Dictionary(uniqueKeysWithValues: assets.enumerated().map { (index, asset) in
+            (asset.id, index.isMultiple(of: 7) ? BackupState.missing : .verified)
+        })
+        let expected = Set(selected.filter { id in
+            DeviceLibrary.allTargetsVerified(DeviceLibrary.deletionTargetIDs(for: [id], assets: assets, galleryAssets: gallery), states: states)
+        })
+        XCTAssertEqual(DeviceLibrary.verifiedGalleryIDs(selected, assets: assets, galleryAssets: gallery, states: states), expected)
+    }
     func testEditedOriginalAppearsAsOneGalleryItem() {
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         let edited = PhotoAsset(id: "1", deviceID: "phone", name: "FullSizeRender.heic",
@@ -21,5 +37,12 @@ final class GalleryGroupingTests: XCTestCase {
         XCTAssertFalse(DeviceLibrary.allTargetsVerified(targets, states: ["1": .verified]))
         XCTAssertFalse(DeviceLibrary.allTargetsVerified(targets, states: ["1": .verified, "2": .changed]))
         XCTAssertTrue(DeviceLibrary.allTargetsVerified(targets, states: ["1": .verified, "2": .verified]))
+        let selected: Set<String> = ["1", "3"]
+        XCTAssertEqual(DeviceLibrary.verifiedGalleryIDs(selected, assets: [edited, original, unrelated],
+                                                       galleryAssets: [edited, unrelated],
+                                                       states: ["1": .verified, "2": .missing, "3": .verified]), ["3"])
+        XCTAssertEqual(DeviceLibrary.verifiedGalleryIDs(selected, assets: [edited, original, unrelated],
+                                                       galleryAssets: [edited, unrelated],
+                                                       states: ["1": .verified, "2": .verified, "3": .verified]), selected)
     }
 }
