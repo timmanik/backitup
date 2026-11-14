@@ -8,7 +8,7 @@ struct BackitupApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(library)
-                .frame(minWidth: 1050, minHeight: 680)
+                .frame(minWidth: 640, minHeight: 600)
                 .preferredColorScheme(.dark)
         }
         .windowStyle(.hiddenTitleBar)

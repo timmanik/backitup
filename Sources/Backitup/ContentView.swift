@@ -284,19 +284,37 @@ struct ContentView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(section == .library ? (kindFilter?.rawValue ?? "All Photos") : section.rawValue)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                Text(section == .library ? "Browse and protect your iPhone memories" :
-                     section == .storage ? "Measured photo and video usage" : "Check local copies before cleanup")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
+                topBarTitle
+                Spacer()
+                topBarControls
             }
-            Spacer()
+            VStack(alignment: .leading, spacing: 10) {
+                topBarTitle
+                HStack(spacing: 14) { topBarControls }
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var topBarTitle: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(section == .library ? (kindFilter?.rawValue ?? "All Photos") : section.rawValue)
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+            Text(section == .library ? "Browse and protect your iPhone memories" :
+                 section == .storage ? "Measured photo and video usage" : "Check local copies before cleanup")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+    }
+
+    private var topBarControls: some View {
+        Group {
             if section == .library {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search filenames", text: $query)
-                    .textFieldStyle(.plain).font(.system(size: 12)).frame(width: 160)
+                    .textFieldStyle(.plain).font(.system(size: 12)).frame(width: 120)
                     .padding(10).background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 8))
             }
             Button { library.refresh() } label: { Image(systemName: "arrow.clockwise") }
@@ -310,15 +328,15 @@ struct ContentView: View {
                 .help(groupPhotosByDate ? "Showing photos by date. Click for one grid." : "Showing one grid. Click to group by date.")
                 HStack(spacing: 7) {
                     Image(systemName: "square.grid.3x3")
-                    Slider(value: $tileSize, in: 115...220).frame(width: 90)
+                    Slider(value: $tileSize, in: 115...220).frame(width: 70)
                 }.foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 26).frame(height: 76)
     }
 
     private var libraryView: some View {
         VStack(spacing: 0) {
+            ScrollView(.horizontal) {
             HStack(spacing: 12) {
                 Text("\(visible.count.formatted()) items").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                 if library.isLoading { ProgressView().controlSize(.small); Text("Reading iPhone…").font(.system(size: 11)).foregroundStyle(.secondary) }
@@ -351,6 +369,7 @@ struct ContentView: View {
             }
             .font(.system(size: 11)).buttonStyle(.plain)
             .padding(.horizontal, 26).frame(height: 43)
+            }.scrollIndicators(.hidden)
             Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1)
             if visible.isEmpty { emptyLibrary }
             else {
@@ -558,38 +577,58 @@ struct ContentView: View {
     private var bottomBar: some View {
         VStack(spacing: 0) {
             Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
-            HStack(spacing: 14) {
-                Image(systemName: "info.circle").foregroundStyle(accent)
-                Text(library.status).lineLimit(1).help(library.status)
-                if library.deleting {
-                    if let fraction = library.deletionFraction {
-                        ProgressView(value: fraction).frame(width: 100)
-                        Text("\(Int(fraction * 100))%")
-                    } else {
-                        ProgressView().frame(width: 100)
-                        Text("Waiting for iPhone")
-                    }
-                } else if library.busy && library.total > 0 {
-                    ProgressView(value: Double(library.completed), total: Double(library.total)).frame(width: 100)
-                    Text("\(library.completed)/\(library.total)")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 14) {
+                    statusContent
+                    Spacer(minLength: 10)
+                    if section == .library { selectionActions }
                 }
-                Spacer()
-                if section == .library {
-                    Text("\(selected.count) selected").foregroundStyle(.secondary)
-                    Button("Check backup") { checkBackups() }.disabled(selected.isEmpty || library.busy)
-                    Button {
-                        showExport = true
-                    } label: { Label("Export selected", systemImage: "square.and.arrow.down") }
-                    .buttonStyle(.borderedProminent).tint(accent).disabled(selected.isEmpty || library.busy || !library.canTransfer)
-                    .help(library.canTransfer ? "Export selected files to your Mac" : "Unlock and reconnect the iPhone to export")
-                    Button { showDelete = true } label: { Label("Delete…", systemImage: "trash") }
-                        .buttonStyle(.bordered).tint(.red)
-                        .disabled(selected.isEmpty || library.busy)
-                        .help(selected.isEmpty ? "Select photos to prepare deletion" : deleteGuidance)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) { statusContent }
+                    if section == .library {
+                        HStack(spacing: 10) { selectionActions }
+                    }
                 }
             }
-            .font(.system(size: 11)).padding(.horizontal, 24).frame(height: 58)
+            .font(.system(size: 11))
+            .padding(.horizontal, 20).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }.background(Color(red: 0.06, green: 0.075, blue: 0.09))
+    }
+
+    private var statusContent: some View {
+        Group {
+            Image(systemName: "info.circle").foregroundStyle(accent)
+            Text(library.status).lineLimit(1).truncationMode(.tail).help(library.status)
+            if library.deleting {
+                if let fraction = library.deletionFraction {
+                    ProgressView(value: fraction).frame(width: 80)
+                    Text("\(Int(fraction * 100))%")
+                } else {
+                    ProgressView().frame(width: 80)
+                    Text("Waiting for iPhone")
+                }
+            } else if library.busy && library.total > 0 {
+                ProgressView(value: Double(library.completed), total: Double(library.total)).frame(width: 80)
+                Text("\(library.completed)/\(library.total)")
+            }
+        }
+    }
+
+    private var selectionActions: some View {
+        Group {
+            Text("\(selected.count) selected").foregroundStyle(.secondary)
+            Button("Check backup") { checkBackups() }.disabled(selected.isEmpty || library.busy)
+            Button {
+                showExport = true
+            } label: { Label("Export selected", systemImage: "square.and.arrow.down") }
+            .buttonStyle(.borderedProminent).tint(accent).disabled(selected.isEmpty || library.busy || !library.canTransfer)
+            .help(library.canTransfer ? "Export selected files to your Mac" : "Unlock and reconnect the iPhone to export")
+            Button { showDelete = true } label: { Label("Delete…", systemImage: "trash") }
+                .buttonStyle(.bordered).tint(.red)
+                .disabled(selected.isEmpty || library.busy)
+                .help(selected.isEmpty ? "Select photos to prepare deletion" : deleteGuidance)
+        }
     }
 
     private func chooseFolder() {
