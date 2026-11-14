@@ -6,6 +6,7 @@
     <key>CFBundleExecutable</key><string>Backitup</string>
     <key>CFBundleIdentifier</key><string>com.backitup.photos</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleIconFile</key><string>Backitup</string>
     <key>CFBundleName</key><string>Backitup</string>
     <key>CFBundleDisplayName</key><string>Backitup</string>
     <key>CFBundlePackageType</key><string>APPL</string>

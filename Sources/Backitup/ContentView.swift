@@ -195,8 +195,13 @@ struct ContentView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 11) {
-                Image(systemName: "externaldrive.fill.badge.icloud")
-                    .font(.title2).foregroundStyle(accent)
+                if let logoURL = Bundle.main.url(forResource: "BackitupLogo", withExtension: "png"),
+                   let logo = NSImage(contentsOf: logoURL) {
+                    Image(nsImage: logo).resizable().scaledToFit().frame(width: 32, height: 32)
+                } else {
+                    Image(systemName: "externaldrive.fill.badge.icloud")
+                        .font(.title2).foregroundStyle(accent)
+                }
                 Text("Backitup").font(.system(size: 19, weight: .bold, design: .rounded))
             }
             .padding(.horizontal, 22).padding(.top, 26).padding(.bottom, 30)
