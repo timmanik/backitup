@@ -15,6 +15,11 @@ final class BackupService {
         let states: [String: BackupState]
     }
 
+    struct ItemExportResult {
+        let record: BackupRecord
+        let warning: String?
+    }
+
     func loadManifest(at root: URL) -> BackupManifest {
         let url = root.appendingPathComponent(Self.manifestName)
         guard let data = try? Data(contentsOf: url),
@@ -75,11 +80,13 @@ final class BackupService {
             }
             let priorRecord = manifest.records[asset.sourceKey]
             do {
-                let record = try await exportOne(asset: asset, file: file, library: library, root: root, options: options)
-                manifest.records[asset.sourceKey] = record
+                let result = try await exportOne(asset: asset, file: file, library: library, root: root, options: options,
+                                                 allowPartial: priorRecord == nil)
+                manifest.records[asset.sourceKey] = result.record
                 try save(manifest, at: root)
                 exported += 1
                 states[asset.id] = verify(asset, at: root, manifest: manifest)
+                if let warning = result.warning { failures.append("\(asset.name): \(warning)") }
             } catch {
                 failures.append("\(asset.name): \(error.localizedDescription)")
                 manifest.records[asset.sourceKey] = priorRecord
@@ -92,7 +99,7 @@ final class BackupService {
     }
 
     private func exportOne(asset: PhotoAsset, file: ICCameraFile, library: DeviceLibrary,
-                           root: URL, options: ExportOptions) async throws -> BackupRecord {
+                           root: URL, options: ExportOptions, allowPartial: Bool) async throws -> ItemExportResult {
         let folder = destinationFolder(for: asset, file: file, root: root, options: options)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let staging = FileManager.default.temporaryDirectory.appendingPathComponent("Backitup-\(UUID().uuidString)", isDirectory: true)
@@ -100,7 +107,30 @@ final class BackupService {
         defer { try? FileManager.default.removeItem(at: staging) }
         let safeName = sanitized(asset.name)
         let wantsSidecars = options.includeLiveVideos || options.includePortraitOriginals || options.includeEditedOriginals || options.includeBurstFrames
-        let downloaded = try await download(file, to: staging, name: safeName, sidecars: wantsSidecars)
+        let downloaded: String
+        do {
+            downloaded = try await download(file, to: staging, name: safeName, sidecars: wantsSidecars)
+        } catch {
+            let originalError = error
+            if wantsSidecars && (error as NSError).domain == "com.apple.ImageCaptureCore" && (error as NSError).code == -9934 {
+                let probe = staging.appendingPathComponent("primary-probe", isDirectory: true)
+                try FileManager.default.createDirectory(at: probe, withIntermediateDirectories: true)
+                do {
+                    let name = try await download(file, to: probe, name: safeName, sidecars: false)
+                    let url = probe.appendingPathComponent(name)
+                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+                    guard let size, size > 0, file.fileSize == 0 || Int64(size) == Int64(file.fileSize) else {
+                        throw AppError.message("The retry returned a missing or incomplete file.")
+                    }
+                    throw AppError.message("The photo downloaded without related files, but the request including related files failed (Image Capture error -9934). No complete backup was recorded.")
+                } catch let probeError as AppError {
+                    throw probeError
+                } catch {
+                    throw AppError.message("Image Capture failed to download the photo both with and without related files: \(originalError.localizedDescription); retry: \(error.localizedDescription)")
+                }
+            }
+            throw AppError.message("Could not download the primary file: \(originalError.localizedDescription)")
+        }
         let source = staging.appendingPathComponent(downloaded)
         guard FileManager.default.fileExists(atPath: source.path) else {
             throw AppError.message("The iPhone reported a completed download, but \(asset.name) was not found in the staging folder.")
@@ -113,6 +143,7 @@ final class BackupService {
         for relatedFile in groupedRelated + declaredSidecars + pairedRaw {
             if seenFiles.insert(ObjectIdentifier(relatedFile)).inserted { relatedFiles.append(relatedFile) }
         }
+        do {
         if wantsSidecars {
             var relatedNames = Set<String>()
             for relatedFile in relatedFiles {
@@ -125,7 +156,9 @@ final class BackupService {
                 // Download separately: Image Capture can return before automatically requested sidecars are complete.
                 let separate = staging.appendingPathComponent(UUID().uuidString, isDirectory: true)
                 try FileManager.default.createDirectory(at: separate, withIntermediateDirectories: true)
-                let actualName = try await download(relatedFile, to: separate, name: relatedName, sidecars: false)
+                let actualName: String
+                do { actualName = try await download(relatedFile, to: separate, name: relatedName, sidecars: false) }
+                catch { throw AppError.message("Could not download related file \(relatedName): \(error.localizedDescription)") }
                 let actualURL = separate.appendingPathComponent(actualName)
                 let actualSize = try actualURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
                 guard Self.relatedSizeIsComplete(expected: Int64(relatedFile.fileSize), actual: actualSize.map(Int64.init)) else {
@@ -134,6 +167,11 @@ final class BackupService {
                 if FileManager.default.fileExists(atPath: relatedURL.path) { try FileManager.default.removeItem(at: relatedURL) }
                 try FileManager.default.moveItem(at: actualURL, to: relatedURL)
             }
+        }
+        } catch {
+            guard allowPartial else { throw error }
+            let record = try savePartialPrimary(source, asset: asset, folder: folder, root: root)
+            return ItemExportResult(record: record, warning: "Primary file saved as a partial backup; \(error.localizedDescription) The item cannot be deleted yet.")
         }
         let finalName = options.originalFilenames ? safeName : generatedName(for: asset)
         var target = uniqueURL(in: folder, name: finalName)
@@ -161,9 +199,22 @@ final class BackupService {
         }
         let primary = try fileRecord(for: target, root: root)
         let expectedSidecars = relatedFiles.count
-        return BackupRecord(sourceKey: asset.sourceKey, relativePath: primary.relativePath,
+        let record = BackupRecord(sourceKey: asset.sourceKey, relativePath: primary.relativePath,
                             sha256: primary.sha256, bytes: primary.bytes, backedUpAt: Date(),
                             relatedFiles: related, deletionSafe: !converted && related.count >= expectedSidecars)
+        return ItemExportResult(record: record, warning: nil)
+    }
+
+    func savePartialPrimary(_ source: URL, asset: PhotoAsset, folder: URL, root: URL) throws -> BackupRecord {
+        let size = try FileManager.default.attributesOfItem(atPath: source.path)[.size] as? NSNumber
+        guard asset.bytes > 0, let size, size.int64Value == asset.bytes else {
+            throw AppError.message("The downloaded primary file does not match the iPhone's reported size.")
+        }
+        let target = uniqueURL(in: folder, name: sanitized(asset.name))
+        try FileManager.default.copyItem(at: source, to: target)
+        let primary = try fileRecord(for: target, root: root)
+        return BackupRecord(sourceKey: asset.sourceKey, relativePath: primary.relativePath, sha256: primary.sha256,
+                            bytes: primary.bytes, backedUpAt: Date(), relatedFiles: [], deletionSafe: false)
     }
 
     static func relatedSizeIsComplete(expected: Int64, actual: Int64?) -> Bool {

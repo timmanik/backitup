@@ -4,6 +4,23 @@ import XCTest
 @testable import Backitup
 
 final class BackupSafetyTests: XCTestCase {
+    func testPartialPrimaryIsRetainedButCannotVerifyForDeletion() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let staged = root.appendingPathComponent("staged")
+        try Data("hello".utf8).write(to: staged)
+        let source = asset()
+        let service = BackupService()
+        let record = try service.savePartialPrimary(staged, asset: source, folder: root, root: root)
+        let manifest = BackupManifest(records: [source.sourceKey: record])
+        XCTAssertEqual(service.verify(source, at: root, manifest: manifest), .partial)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(record.relativePath)), Data("hello".utf8))
+        try Data("other".utf8).write(to: root.appendingPathComponent(record.relativePath))
+        XCTAssertEqual(service.verify(source, at: root, manifest: manifest), .changed)
+        try Data("bad".utf8).write(to: staged)
+        XCTAssertThrowsError(try service.savePartialPrimary(staged, asset: source, folder: root, root: root))
+    }
     func testRelatedDownloadSizeValidation() {
         XCTAssertTrue(BackupService.relatedSizeIsComplete(expected: 100, actual: 100))
         XCTAssertFalse(BackupService.relatedSizeIsComplete(expected: 100, actual: 99))
