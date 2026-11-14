@@ -44,13 +44,14 @@ struct ExportSheet: View {
 
                     Divider()
                     sectionHeader("FOLDER ORGANIZATION", detail: "Keep exports easy to find later.")
-                    optionToggle("Create folders for moments", value: $options.moments)
+                    optionToggle("Create folders for moments, grouped by year", value: $options.moments)
                     if options.moments {
                         HStack(spacing: 20) {
-                            Picker("Folder name", selection: $options.locationFirst) {
-                                Text("Date – Location").tag(false)
-                                Text("Location – Date").tag(true)
-                            }.pickerStyle(.segmented).frame(width: 330)
+                            Picker("Folder name", selection: $options.momentFolderName) {
+                                Text("Date only").tag(MomentFolderName.dateOnly)
+                                Text("Date – Location").tag(MomentFolderName.dateLocation)
+                                Text("Location – Date").tag(MomentFolderName.locationDate)
+                            }.pickerStyle(.segmented).frame(width: 460)
                         }.padding(.leading, 24)
                     }
                     optionToggle("Create folders for media types", value: $options.mediaFolders)

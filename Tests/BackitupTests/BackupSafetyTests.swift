@@ -21,6 +21,26 @@ final class BackupSafetyTests: XCTestCase {
         try Data("bad".utf8).write(to: staged)
         XCTAssertThrowsError(try service.savePartialPrimary(staged, asset: source, folder: root, root: root))
     }
+    func testMomentFoldersUseYearAndSelectedName() {
+        let root = URL(fileURLWithPath: "/backup", isDirectory: true)
+        let source = asset()
+        let service = BackupService()
+        var options = ExportOptions()
+        let date = DateFormatter()
+        date.calendar = Calendar(identifier: .gregorian)
+        date.locale = Locale(identifier: "en_US_POSIX")
+        date.dateFormat = "yyyy-MM-dd"
+        let stamp = date.string(from: source.date)
+        options.momentFolderName = .dateOnly
+        XCTAssertEqual(service.destinationFolder(for: source, location: "Place", root: root, options: options).path, "/backup/\(stamp.prefix(4))/\(stamp)")
+        options.momentFolderName = .locationDate
+        XCTAssertEqual(service.destinationFolder(for: source, location: "Place", root: root, options: options).lastPathComponent, "Place - \(stamp)")
+        options.momentFolderName = .dateLocation
+        XCTAssertEqual(service.destinationFolder(for: source, location: "Place", root: root, options: options).lastPathComponent, "\(stamp) - Place")
+        options.moments = false
+        XCTAssertEqual(service.destinationFolder(for: source, location: "Place", root: root, options: options), root)
+    }
+
     func testRelatedDownloadSizeValidation() {
         XCTAssertTrue(BackupService.relatedSizeIsComplete(expected: 100, actual: 100))
         XCTAssertFalse(BackupService.relatedSizeIsComplete(expected: 100, actual: 99))

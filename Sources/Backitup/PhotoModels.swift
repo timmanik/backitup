@@ -46,6 +46,10 @@ struct PhotoAsset: Identifiable, Hashable, Codable {
     }
 }
 
+enum MomentFolderName: String, CaseIterable {
+    case dateOnly, dateLocation, locationDate
+}
+
 struct ExportOptions {
     var kinds = Set(MediaKind.allCases)
     var includeLiveVideos = true
@@ -53,7 +57,7 @@ struct ExportOptions {
     var includeBurstFrames = true
     var includeEditedOriginals = true
     var moments = true
-    var locationFirst = false
+    var momentFolderName: MomentFolderName = .dateLocation
     var mediaFolders = false
     var originalFilenames = true
     var convertHEIC = false

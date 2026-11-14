@@ -100,7 +100,7 @@ final class BackupService {
 
     private func exportOne(asset: PhotoAsset, file: ICCameraFile, library: DeviceLibrary,
                            root: URL, options: ExportOptions, allowPartial: Bool) async throws -> ItemExportResult {
-        let folder = destinationFolder(for: asset, file: file, root: root, options: options)
+        let folder = destinationFolder(for: asset, location: file.gpsString, root: root, options: options)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let staging = FileManager.default.temporaryDirectory.appendingPathComponent("Backitup-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
@@ -247,20 +247,24 @@ final class BackupService {
         }
     }
 
-    private func destinationFolder(for asset: PhotoAsset, file: ICCameraFile, root: URL, options: ExportOptions) -> URL {
+    func destinationFolder(for asset: PhotoAsset, location: String?, root: URL, options: ExportOptions) -> URL {
         var folder = root
         if options.moments {
             let formatter = DateFormatter()
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "yyyy-MM-dd"
             let date = asset.date == .distantPast ? "Unknown date" : formatter.string(from: asset.date)
-            let location = file.gpsString?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let year = asset.date == .distantPast ? "Unknown year" : String(date.prefix(4))
+            let location = location?.trimmingCharacters(in: .whitespacesAndNewlines)
             let label: String
-            if let location, !location.isEmpty {
+            if options.momentFolderName != .dateOnly, let location, !location.isEmpty {
                 let safeLocation = sanitized(location)
-                label = options.locationFirst ? "\(safeLocation) - \(date)" : "\(date) - \(safeLocation)"
+                label = options.momentFolderName == .locationDate ? "\(safeLocation) - \(date)" : "\(date) - \(safeLocation)"
             } else {
                 label = date
             }
+            folder.appendPathComponent(year, isDirectory: true)
             folder.appendPathComponent(label, isDirectory: true)
         }
         if options.mediaFolders { folder.appendPathComponent(asset.kind.rawValue, isDirectory: true) }

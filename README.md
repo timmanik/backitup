@@ -32,7 +32,7 @@ The storage tab reports the file sizes of accessible photos and videos, broken d
 
 ## Current limits
 
-- Classification comes from Image Capture metadata. Portrait and edited-original distinctions are not always exposed, so related-file options download available sidecars together. Location folders use device GPS text where present; reverse geocoding is not implemented.
+- Classification comes from Image Capture metadata. Portrait and edited-original distinctions are not always exposed, so related-file options download available sidecars together. Moment folders are grouped by year and can use date only, date and location, or location and date. Location folders use device GPS text where present; reverse geocoding is not implemented.
 - Video conversion uses the macOS MP4 export preset and may change codec or dimensions. Keep conversion off for bit-identical originals.
 - The manifest verifies backups made by Backitup in the selected folder; it does not search arbitrary folders or the Mac Photos library.
 - Deletion and high-volume exports still need testing with a physical iPhone and the user's iOS settings. The app has no automatic deletion after export.
