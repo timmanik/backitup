@@ -6,7 +6,7 @@ struct ExportSheet: View {
     let onCancel: () -> Void
     let onExport: () -> Void
 
-    private let blue = Color(red: 0.36, green: 0.62, blue: 1)
+    private let blue = Color(red: 0.84, green: 0.30, blue: 0.31)
     private var selectedCount: Int { selection.filter { options.kinds.contains($0.kind) }.count }
     private var estimatedBytes: Int64 { selection.filter { options.kinds.contains($0.kind) }.reduce(0) { $0 + $1.bytes } }
 
@@ -82,8 +82,10 @@ struct ExportSheet: View {
             }.padding(22)
         }
         .frame(width: 740, height: 710)
-        .background(Color(red: 0.11, green: 0.13, blue: 0.16))
-        .foregroundStyle(.white)
+        .background(Color.white)
+        .foregroundStyle(Color(red: 0.22, green: 0.22, blue: 0.25))
+        .tint(blue)
+        .preferredColorScheme(.light)
     }
 
     private func sectionHeader(_ title: String, detail: String) -> some View {

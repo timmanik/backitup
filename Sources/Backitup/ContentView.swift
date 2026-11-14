@@ -31,7 +31,10 @@ struct ContentView: View {
     @State private var backupError: String?
     @State private var tileSize: CGFloat = 150
 
-    private let accent = Color(red: 0.36, green: 0.62, blue: 1)
+    private let accent = Color(red: 0.84, green: 0.30, blue: 0.31)
+    private let ink = Color(red: 0.22, green: 0.22, blue: 0.25)
+    private let surface = Color(red: 0.98, green: 0.96, blue: 0.95)
+    private let line = Color(red: 0.91, green: 0.89, blue: 0.88)
 
     private var dateRange: PhotoDateRange {
         PhotoDateRange(from: useFromDate ? fromDate : nil,
@@ -83,10 +86,10 @@ struct ContentView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-            Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1)
+            Rectangle().fill(line).frame(width: 1)
             VStack(spacing: 0) {
                 topBar
-                Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
+                Rectangle().fill(line).frame(height: 1)
                 Group {
                     switch section {
                     case .library: libraryView
@@ -97,8 +100,10 @@ struct ContentView: View {
                 bottomBar
             }
         }
-        .background(Color(red: 0.075, green: 0.09, blue: 0.11))
-        .foregroundStyle(.white)
+        .background(Color.white)
+        .foregroundStyle(ink)
+        .tint(accent)
+        .preferredColorScheme(.light)
         .onReceive(library.$galleryAssets) { current in
             let available = Set(current.map(\.id))
             selected.formIntersection(available)
@@ -209,8 +214,15 @@ struct ContentView: View {
             Text("DEVICE").font(.system(size: 10, weight: .bold, design: .rounded))
                 .tracking(1.6).foregroundStyle(.secondary).padding(.horizontal, 22).padding(.bottom, 10)
             HStack(spacing: 12) {
-                Image(systemName: "iphone.gen3").font(.system(size: 23)).foregroundStyle(accent)
+                Image(systemName: "iphone")
+                    .font(.system(size: 23, weight: .medium, design: .rounded))
+                    .foregroundStyle(accent)
                     .frame(width: 30)
+                    .overlay(alignment: .bottomTrailing) {
+                        Circle().fill(library.deviceName == nil ? Color.gray : Color.green)
+                            .frame(width: 7, height: 7)
+                            .overlay(Circle().stroke(surface, lineWidth: 1.5))
+                    }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(library.deviceName ?? library.cachedDeviceName ?? "No iPhone connected").font(.system(size: 13, weight: .semibold)).lineLimit(1)
                     Text(library.deviceName == nil ? (library.galleryAssets.isEmpty ? "Connect via USB" : "Saved photo catalog") : "Connected via Image Capture")
@@ -218,7 +230,7 @@ struct ContentView: View {
                 }
             }
             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 12))
+            .background(surface, in: RoundedRectangle(cornerRadius: 12))
             .padding(.horizontal, 12).padding(.bottom, 28)
 
             Text("WORKSPACE").font(.system(size: 10, weight: .bold, design: .rounded))
@@ -238,12 +250,13 @@ struct ContentView: View {
                             kindFilter = kindFilter == kind ? nil : kind
                         } label: {
                             HStack(spacing: 11) {
-                                Image(systemName: kind.symbol).frame(width: 18)
+                                Image(systemName: kind.symbol).font(.system(size: 13, weight: .medium)).frame(width: 18)
                                 Text(kind.rawValue)
                                 Spacer()
                                 Text("\(library.galleryAssets.filter { $0.kind == kind }.count)").foregroundStyle(.secondary)
                             }
-                            .font(.system(size: 12, weight: kindFilter == kind ? .semibold : .regular))
+                            .font(.system(size: 12, weight: kindFilter == kind ? .semibold : .medium, design: .rounded))
+                            .foregroundStyle(kindFilter == kind && section == .library ? accent : ink)
                             .padding(.horizontal, 14).padding(.vertical, 9)
                             .background(kindFilter == kind && section == .library ? accent.opacity(0.18) : .clear,
                                         in: RoundedRectangle(cornerRadius: 8))
@@ -262,11 +275,11 @@ struct ContentView: View {
                     .font(.system(size: 11)).buttonStyle(.link)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16).background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 11))
+            .padding(16).background(surface, in: RoundedRectangle(cornerRadius: 11))
             .padding(12)
         }
         .frame(width: 236)
-        .background(Color(red: 0.055, green: 0.07, blue: 0.085))
+        .background(Color(red: 0.99, green: 0.98, blue: 0.97))
     }
 
     private func sideRow(_ target: AppSection, symbol: String) -> some View {
@@ -275,14 +288,14 @@ struct ContentView: View {
             if target == .library { kindFilter = nil }
         } label: {
             HStack(spacing: 11) {
-                Image(systemName: symbol).frame(width: 18)
+                Image(systemName: symbol).font(.system(size: 13, weight: .medium)).frame(width: 18)
                 Text(target.rawValue)
                 Spacer()
                 if target == .library { Text("\(library.galleryAssets.count)").foregroundStyle(.secondary) }
             }
-            .font(.system(size: 13, weight: section == target ? .semibold : .medium))
+            .font(.system(size: 13, weight: section == target ? .semibold : .medium, design: .rounded))
             .padding(.horizontal, 14).padding(.vertical, 11)
-            .foregroundStyle(section == target ? .white : Color.white.opacity(0.72))
+            .foregroundStyle(section == target ? accent : ink)
             .background(section == target ? accent.opacity(0.2) : .clear, in: RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(.plain).padding(.horizontal, 12)
@@ -317,19 +330,22 @@ struct ContentView: View {
     private var topBarControls: some View {
         Group {
             if section == .library {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search filenames", text: $query)
-                    .textFieldStyle(.plain).font(.system(size: 12)).frame(width: 120)
-                    .padding(10).background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 8))
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(Color.gray)
+                    TextField("", text: $query, prompt: Text("Search filenames").foregroundStyle(Color.gray))
+                        .textFieldStyle(.plain).foregroundStyle(ink).frame(width: 120)
+                }
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .padding(10).background(surface, in: RoundedRectangle(cornerRadius: 9))
             }
             Button { library.refresh() } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.plain).help("Refresh iPhone photos").disabled(library.deviceName == nil)
+                .buttonStyle(ToolbarIconStyle()).help("Refresh iPhone photos").disabled(library.deviceName == nil)
             if section == .library {
                 Button { groupPhotosByDate.toggle() } label: {
-                    Image(systemName: groupPhotosByDate ? "rectangle.3.group.fill" : "rectangle.grid.3x2")
+                    Image(systemName: "rectangle.3.group")
                         .foregroundStyle(groupPhotosByDate ? accent : Color.secondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ToolbarIconStyle())
                 .help(groupPhotosByDate ? "Showing photos by date. Click for one grid." : "Showing one grid. Click to group by date.")
                 HStack(spacing: 7) {
                     Image(systemName: "square.grid.3x3")
@@ -358,7 +374,7 @@ struct ContentView: View {
                 .help("Sort photos by capture date")
                 Button { showingDateFilter.toggle() } label: {
                     Label("Dates", systemImage: "calendar")
-                        .foregroundStyle(dateRange.isActive ? accent : .white)
+                        .foregroundStyle(dateRange.isActive ? accent : ink)
                 }
                 .help("Filter photos by capture date")
                 .popover(isPresented: $showingDateFilter, arrowEdge: .bottom) { dateFilterPopover }
@@ -375,7 +391,7 @@ struct ContentView: View {
             .font(.system(size: 11)).buttonStyle(.plain)
             .padding(.horizontal, 26).frame(height: 43)
             }.scrollIndicators(.hidden)
-            Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1)
+            Rectangle().fill(line).frame(height: 1)
             if visible.isEmpty { emptyLibrary }
             else {
                 ScrollView {
@@ -388,14 +404,14 @@ struct ContentView: View {
                                         .padding(.bottom, 18)
                                 } header: {
                                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                        Text(group.title).font(.system(size: 19, weight: .bold, design: .rounded))
+                                        Text(group.title).font(.system(size: 18, weight: .semibold, design: .rounded))
                                         Text("\(group.assets.count.formatted())")
                                             .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
                                         Spacer()
                                     }
                                     .padding(.horizontal, 24).padding(.vertical, 16)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(Color(red: 0.075, green: 0.09, blue: 0.11).opacity(0.97))
+                                    .background(Color.white.opacity(0.97))
                                 }
                             }
                         }
@@ -561,14 +577,14 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading).padding(22)
-        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 14))
+        .background(surface, in: RoundedRectangle(cornerRadius: 14))
     }
     private func statCard(_ title: String, count: Int, tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text("\(count.formatted())").font(.system(size: 25, weight: .bold, design: .rounded)).foregroundStyle(tint)
             Text(title).font(.system(size: 11)).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(17)
-            .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+            .background(surface, in: RoundedRectangle(cornerRadius: 10))
     }
     private func storageCard(_ title: String, value: Int64, symbol: String, tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -576,12 +592,12 @@ struct ContentView: View {
             Text(formattedBytes(value)).font(.system(size: 21, weight: .bold, design: .rounded))
             Text(title).font(.system(size: 11)).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
-            .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 11))
+            .background(surface, in: RoundedRectangle(cornerRadius: 11))
     }
 
     private var bottomBar: some View {
         VStack(spacing: 0) {
-            Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
+            Rectangle().fill(line).frame(height: 1)
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 14) {
                     statusContent
@@ -598,7 +614,7 @@ struct ContentView: View {
             .font(.system(size: 11))
             .padding(.horizontal, 20).padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-        }.background(Color(red: 0.06, green: 0.075, blue: 0.09))
+        }.background(Color(red: 0.99, green: 0.98, blue: 0.97))
     }
 
     private var statusContent: some View {
@@ -784,6 +800,27 @@ struct ContentView: View {
     }
 }
 
+private struct ToolbarIconStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        ToolbarIconButton(configuration: configuration)
+    }
+
+    private struct ToolbarIconButton: View {
+        let configuration: ButtonStyle.Configuration
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 32, height: 32)
+                .background(hovering || configuration.isPressed ? Color.black.opacity(0.05) : .clear,
+                            in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+                .onHover { hovering = $0 }
+        }
+    }
+}
+
 private struct AssetTile: View {
     @State private var isHovering = false
     let asset: PhotoAsset
@@ -796,7 +833,7 @@ private struct AssetTile: View {
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.06))
+                RoundedRectangle(cornerRadius: 9).fill(Color(red: 0.96, green: 0.94, blue: 0.93))
                 if let image {
                     Image(nsImage: image).resizable().scaledToFill().frame(width: size, height: size * 0.82).clipped()
                 } else {
@@ -806,11 +843,11 @@ private struct AssetTile: View {
                 }
                 HStack {
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(selected ? Color(red: 0.36, green: 0.62, blue: 1) : .white)
+                        .foregroundStyle(selected ? Color(red: 0.84, green: 0.30, blue: 0.31) : .white)
                         .background(.black.opacity(0.25), in: Circle())
                     Spacer()
                     if backup == .verified { Image(systemName: "checkmark.shield.fill").foregroundStyle(.green) }
-                }.font(.system(size: 20)).padding(8)
+                }.font(.system(size: 17, weight: .medium)).padding(8)
                 if isHovering || selected {
                     VStack {
                         Spacer()
@@ -820,11 +857,13 @@ private struct AssetTile: View {
                             Spacer(minLength: 0)
                         }
                         .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white)
                         .padding(7).background(.black.opacity(0.65))
                     }
                 } else if asset.isVideo {
                     Image(systemName: "play.fill")
                         .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white)
                         .padding(6)
                         .background(.black.opacity(0.6), in: Circle())
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -833,7 +872,7 @@ private struct AssetTile: View {
             }
             .frame(width: size, height: size * 0.82)
             .clipShape(RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(selected ? Color(red: 0.36, green: 0.62, blue: 1) : .clear, lineWidth: 3))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(selected ? Color(red: 0.84, green: 0.30, blue: 0.31) : .clear, lineWidth: 3))
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
